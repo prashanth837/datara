@@ -21,11 +21,19 @@ SCOPES = [
 ]
 
 # -------------------- LOAD GOOGLE CREDENTIALS (Render + Local) --------------------
-json_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS", "service_account.json")
-print("🔐 Using credentials file:", json_path)
+# -------------------- LOAD GOOGLE CREDENTIALS (Render + Local) --------------------
+json_str = os.getenv("GOOGLE_APPLICATION_CREDENTIALS_JSON")
 
-creds = Credentials.from_service_account_file(json_path, scopes=SCOPES)
+if json_str:
+    print("🔐 Loading Google credentials from ENV (Render)...")
+    info = json.loads(json_str)
+    creds = Credentials.from_service_account_info(info, scopes=SCOPES)
+else:
+    print("🔐 Loading Google credentials from local file (Local Development)...")
+    creds = Credentials.from_service_account_file("service_account.json", scopes=SCOPES)
+
 client = gspread.authorize(creds)
+
 
 pdf_sheet = client.open_by_key(PDF_SHEET_ID).sheet1
 info_sheet = client.open_by_key(INFO_SHEET_ID).sheet1
