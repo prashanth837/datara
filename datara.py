@@ -188,14 +188,35 @@ async def handle(update: Update, ctx):
 
 
 # -------------------- RUN --------------------
+# -------------------- RUN --------------------
+# -------------------- RUN --------------------
 if __name__ == "__main__":
     print("🚀 Datara Bot running on Render!")
 
-    # Start Flask Web Server (REQUIRED for Render)
-    threading.Thread(target=run_web).start()
+    # Start Flask Web Server
+    threading.Thread(target=run_web, daemon=True).start()
 
-    # Start Telegram Bot
-    telegram_app = ApplicationBuilder().token(BOT_TOKEN).build()
-    telegram_app.add_handler(CommandHandler("start", start))
-    telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
-    telegram_app.run_polling()
+    async def main():
+        print("🤖 Starting Telegram polling...")
+
+        application = ApplicationBuilder().token(BOT_TOKEN).build()
+
+        application.add_handler(CommandHandler("start", start))
+        application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
+
+        await application.initialize()
+        await application.start()
+
+        try:
+            await application.updater.start_polling()
+            print("✅ Bot is live and polling!")
+        except Exception as e:
+            print("🔥 ERROR in polling:", e)
+
+        # Keep bot alive forever
+        await asyncio.Event().wait()
+
+    try:
+        asyncio.run(main())
+    except Exception as e:
+        print("🔥 MAIN LOOP ERROR:", e)
