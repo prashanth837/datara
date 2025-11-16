@@ -1,0 +1,9 @@
+python-telegram-bot==21.4
+gspread==6.0.0
+google-auth
+google-auth-oauthlib
+google-auth-httplib2
+google-api-python-client
+python-dotenv
+requests
+google-generativeai

@@ -1,0 +1,8 @@
+service_account.json
+git add .gitignore
+.venv/
+.env
+__pycache__/
+service_account.json
+*.ipynb
+s
