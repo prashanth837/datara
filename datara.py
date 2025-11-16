@@ -1,4 +1,4 @@
-import os, re, asyncio, requests
+import os, re, asyncio, requests, threading
 from io import BytesIO
 import json
 import gspread
@@ -7,6 +7,18 @@ from google.oauth2.service_account import Credentials
 import google.generativeai as genai
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
+from flask import Flask
+
+# -------------------- MINI WEB SERVER (Required for Render Free) --------------------
+app_web = Flask(__name__)
+
+@app_web.route("/")
+def home():
+    return "Datara Bot is running on Render!"
+
+def run_web():
+    app_web.run(host="0.0.0.0", port=10000)
+
 
 # -------------------- DIRECT STRING VARIABLES --------------------
 BOT_TOKEN = os.getenv("BOT_TOKEN", "8441717075:AAGmsAqLYQSCT9EjiCxoJniHj4qxqD_lUYo")
@@ -20,8 +32,7 @@ SCOPES = [
     "https://www.googleapis.com/auth/drive.readonly"
 ]
 
-# -------------------- LOAD GOOGLE CREDENTIALS (Render + Local) --------------------
-# -------------------- LOAD GOOGLE CREDENTIALS (Render + Local) --------------------
+# -------------------- LOAD GOOGLE CREDENTIALS --------------------
 json_str = os.getenv("GOOGLE_APPLICATION_CREDENTIALS_JSON")
 
 if json_str:
@@ -33,7 +44,6 @@ else:
     creds = Credentials.from_service_account_file("service_account.json", scopes=SCOPES)
 
 client = gspread.authorize(creds)
-
 
 pdf_sheet = client.open_by_key(PDF_SHEET_ID).sheet1
 info_sheet = client.open_by_key(INFO_SHEET_ID).sheet1
@@ -95,24 +105,6 @@ async def ai_tone(text: str) -> str:
     except Exception:
         return text.strip()
 
-
-def is_keyword_match(message: str, keyword: str) -> bool:
-    msg = clean_text(message)
-    key = clean_text(keyword)
-
-    if key in msg or msg in key:
-        return True
-
-    msg_tokens = set(msg.split())
-    key_tokens = set(key.split())
-
-    if msg_tokens & key_tokens:
-        return True
-
-    from difflib import SequenceMatcher
-    return SequenceMatcher(None, msg, key).ratio() > 0.7
-
-
 # -------------------- CASUAL REPLIES --------------------
 CASUAL_REPLIES = {
     "hi": "👋 Hey there! How are you doing?",
@@ -128,14 +120,14 @@ CASUAL_REPLIES = {
 
 
 # -------------------- TELEGRAM BOT --------------------
-async def start(update: Update, _: ContextTypes.DEFAULT_TYPE):
+async def start(update: Update, _):
     await update.message.reply_text(
         "👋 Hi! I’m *Datara Bot*, your assistant.\nAsk me anything!",
         parse_mode="Markdown"
     )
 
 
-async def handle(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+async def handle(update: Update, ctx):
     raw_msg = update.message.text or ""
     msg = clean_text(raw_msg)
 
@@ -148,7 +140,6 @@ async def handle(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     found_info = []
     found_pdf = []
-    all_pdf_keywords = []
 
     # --- Info responses ---
     for row in info_data:
@@ -163,7 +154,6 @@ async def handle(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     # --- PDF responses ---
     for row in pdf_data:
         keywords = [clean_text(k) for k in str(row.get("keyword", "")).split(",") if k.strip()]
-        all_pdf_keywords += keywords
 
         for kw in keywords:
             if kw in msg or msg in kw:
@@ -181,7 +171,9 @@ async def handle(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if found_pdf:
         for kw, link in found_pdf:
             try:
-                await update.message.reply_text(f"📎 Fetching *{kw.title()}* PDF...", parse_mode="Markdown")
+                await update.message.reply_text(
+                    f"📎 Fetching *{kw.title()}* PDF...", parse_mode="Markdown"
+                )
                 response = requests.get(link, timeout=30)
                 response.raise_for_status()
                 file_data = BytesIO(response.content)
@@ -197,8 +189,13 @@ async def handle(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 # -------------------- RUN --------------------
 if __name__ == "__main__":
-    print("✅ Datara Bot running on Render!")
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
-    app.run_polling()
+    print("🚀 Datara Bot running on Render!")
+
+    # Start Flask Web Server (REQUIRED for Render)
+    threading.Thread(target=run_web).start()
+
+    # Start Telegram Bot
+    telegram_app = ApplicationBuilder().token(BOT_TOKEN).build()
+    telegram_app.add_handler(CommandHandler("start", start))
+    telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
+    telegram_app.run_polling()
