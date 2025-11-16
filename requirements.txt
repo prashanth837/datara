@@ -1,6 +1,9 @@
-flask
 requests
 gspread
 google-auth
 python-telegram-bot==20.7
 google-generativeai
+pydantic==1.10.12
+pydantic-core==2.10.1
+typing-extensions==4.8.0
+flask
