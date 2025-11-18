@@ -1,9 +1,8 @@
+python-telegram-bot==21.6
 flask
-requests
+aiohttp
 gspread
 google-auth
-python-telegram-bot==20.7
+google-auth-oauthlib
 google-generativeai
-pydantic==1.10.12
-typing-extensions==4.8.0
-aiohttp
+requests
