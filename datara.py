@@ -178,15 +178,39 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # GEMINI FALLBACK
     # GEMINI FALLBACK
+    # GEMINI FALLBACK (STRICT TWO LINES)
     try:
-        prompt = f"Reply in only two lines. No options. No explanations.\n{text_raw}"
+        prompt = f"""
+        You MUST reply in EXACTLY two lines.
+        • Line 1: Direct answer only.
+        • Line 2: Very short summary.
+        No paragraphs. No bullet points. No explanations. No extra lines.
+        User message: {text_raw}
+        """
+
         m = genai.GenerativeModel(MODEL_NAME)
-        resp = await asyncio.to_thread(m.generate_content, prompt)
-        text = resp.text
+        resp = await asyncio.to_thread(
+            m.generate_content,
+            prompt,
+            generation_config={
+                "temperature": 0.2,
+                "max_output_tokens": 50
+            }
+        )
+
+        text = resp.text.strip()
+
+        # Final hard enforcement
+        lines = [l.strip() for l in text.split("\n") if l.strip()]
+        if len(lines) > 2:
+            lines = lines[:2]
+
+        text = "\n".join(lines)
         await update.message.reply_text(text)
 
     except Exception as e:
         await update.message.reply_text("I couldn't answer right now.")
+
 
 
 # =============================
