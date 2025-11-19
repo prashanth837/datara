@@ -5,7 +5,6 @@ import threading
 import asyncio
 from io import BytesIO
 from urllib.parse import unquote
-
 import aiohttp
 import requests
 from flask import Flask, request, jsonify
@@ -96,7 +95,8 @@ async def ai_tone(text):
 
 
 CASUAL = {
-    "hi": "👋 Hey there!",
+    "hi": "👋 Hey there!how can i help you",
+    "hlo" : "hello..!! how can i help you ",
     "hello": "Hello! 😊",
     "hey": "Hey! 👋",
     "bye": "Goodbye! 👋",
@@ -182,8 +182,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         prompt = f"""
         You MUST reply in EXACTLY two lines.
-        • Line 1: Direct answer only.
-        • Line 2: Very short summary.
+        • Line 1: Direct answer only  Very short summary in a formal way.
         No paragraphs. No bullet points. No explanations. No extra lines.
         User message: {text_raw}
         """
