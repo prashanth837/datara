@@ -177,14 +177,16 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
     # GEMINI FALLBACK
+    # GEMINI FALLBACK
     try:
-        prompt = f" imagine that your are a chatbot for university students and Answer in just a two lines :\n{text_raw}"
+        prompt = f"Reply in only two lines. No options. No explanations.\n{text_raw}"
         m = genai.GenerativeModel(MODEL_NAME)
         resp = await asyncio.to_thread(m.generate_content, prompt)
-        text = await ai_tone(resp.text)
+        text = resp.text
         await update.message.reply_text(text)
-    except:
-        await update.message.reply_text("I couldn’t answer right now.")
+
+    except Exception as e:
+        await update.message.reply_text("I couldn't answer right now.")
 
 
 # =============================
