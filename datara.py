@@ -178,7 +178,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # GEMINI FALLBACK
     try:
-        prompt = f"Answer clearly:\n{text_raw}"
+        prompt = f" imagine that your are a chatbot for university students and Answer in just a two lines :\n{text_raw}"
         m = genai.GenerativeModel(MODEL_NAME)
         resp = await asyncio.to_thread(m.generate_content, prompt)
         text = await ai_tone(resp.text)
