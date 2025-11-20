@@ -86,7 +86,7 @@ def get_drive_download_link(url):
 
 async def ai_tone(text):
     try:
-        prompt = "imagine your using in chatbot so just give the answer single time in a formal language no need to give multiple ways:\n" + text
+        prompt = "imagine your using in chatbot so just give the answer single time in a formal language no need to give multiple ways and dont use any other keywords like understood,okay just give the answer:\n" + text
         m = genai.GenerativeModel(MODEL_NAME)
         resp = await asyncio.to_thread(m.generate_content, prompt)
         return resp.text.strip()
