@@ -86,7 +86,7 @@ def get_drive_download_link(url):
 
 async def ai_tone(text):
     try:
-        prompt = "Rewrite this clearly and politely:\n" + text
+        prompt = "imagine your using in chatbot so Rewrite this in a formal language in just two to three lines.dont't exceed more than three lines if there is a chance to end up in three lines:\n" + text
         m = genai.GenerativeModel(MODEL_NAME)
         resp = await asyncio.to_thread(m.generate_content, prompt)
         return resp.text.strip()
@@ -95,8 +95,8 @@ async def ai_tone(text):
 
 
 CASUAL = {
-    "hi": "👋 Hey there!how can i help you",
-    "hlo" : "hello..!! how can i help you ",
+    "hi": "👋 Hey there!how can i help you?",
+    "hlo" : "hello..!! how can i help you..?",
     "hello": "Hello! 😊",
     "hey": "Hey! 👋",
     "bye": "Goodbye! 👋",
@@ -115,52 +115,67 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text_raw = update.message.text or ""
     msg = clean_text(text_raw)
 
+    # -----------------------------
+    # CASUAL RESPONSES
+    # -----------------------------
     if msg in CASUAL:
         await update.message.reply_text(CASUAL[msg])
         return
 
+    # -----------------------------
+    # LOAD GOOGLE SHEETS
+    # -----------------------------
     pdf_data = pdf_sheet.get_all_records()
     info_data = info_sheet.get_all_records()
 
     found_info = []
     found_pdf = []
-    all_keys = []
+    all_keys = []   # will store BOTH info + pdf keywords
 
-    # INFO SEARCH
+    # -----------------------------
+    # INFO SHEET SEARCH
+    # -----------------------------
     for row in info_data:
         keys = [clean_text(k) for k in str(row.get("keywords", "")).split(",")]
+        all_keys.extend(keys)
+
         ans = row.get("answer") or row.get("info") or ""
+
         for kw in keys:
             if kw in msg or msg in kw:
-                found_info.append((kw, ans))
+                found_info.append(ans)
                 break
 
+    # If found, reply with info answer
     if found_info:
-        combined = "\n\n".join([f"📘 {k.title()} — {a}" for k, a in found_info])
-        final = await ai_tone(combined)
-        await update.message.reply_text(final)
+        answer = "\n\n".join(found_info)
+        answer = await ai_tone(answer)
+        await update.message.reply_text(answer)
         return
 
-    # PDF SEARCH
+    # -----------------------------
+    # PDF SHEET SEARCH
+    # -----------------------------
     for row in pdf_data:
         keys = [clean_text(k) for k in str(row.get("keyword", "")).split(",")]
-        all_keys += keys
+        all_keys.extend(keys)
+
         for kw in keys:
             if kw in msg or msg in kw:
-                url = get_drive_download_link(row["file_url"])
-                found_pdf.append((kw, url))
+                found_pdf.append(get_drive_download_link(row["file_url"]))
                 break
 
+    # If found PDF, send it
     if found_pdf:
-        for kw, url in found_pdf:
-            await update.message.reply_text(f"📎 Fetching {kw} PDF...")
+        for url in found_pdf:
+            await update.message.reply_text("📎 Fetching PDF...")
 
             try:
                 async with aiohttp.ClientSession() as session:
                     async with session.get(url) as resp:
-                        file_data = BytesIO(await resp.read())
+                        file_bytes = BytesIO(await resp.read())
                         await update.message.reply_document(
-                            document=file_data,
+                            document=file_bytes,
                             filename=get_drive_file_name(url)
                         )
             except Exception as e:
@@ -168,22 +183,26 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         return
 
-    # SIMILAR KEYWORDS
-    if len(msg.split()) <= 3:
-        from difflib import get_close_matches
-        matches = get_close_matches(msg, all_keys, n=4, cutoff=0.45)
-        if matches:
-            await update.message.reply_text("Did you mean:\n• " + "\n• ".join(matches))
-            return
+    # -----------------------------
+    # SUGGEST NEAR-MATCH KEYWORDS
+    # -----------------------------
+    from difflib import get_close_matches
+    matches = get_close_matches(msg, list(set(all_keys)), n=3, cutoff=0.55)
 
-    # GEMINI FALLBACK
-    # GEMINI FALLBACK
-    # GEMINI FALLBACK (STRICT TWO LINES)
+    if matches:
+        await update.message.reply_text(
+            "Did you mean:\n• " + "\n• ".join(matches)
+        )
+        return
+
+    # -----------------------------
+    # GEMINI FALLBACK (ONLY IF SHEET FAILS)
+    # -----------------------------
     try:
         prompt = f"""
-        You MUST reply in EXACTLY two lines.
-        • Line 1: Direct answer only  Very short summary in a formal way.
-        No paragraphs. No bullet points. No explanations. No extra lines.
+        Reply in EXACTLY two lines.
+        - Line 1: Direct short answer.Very short summary in a formal lanuguage.
+        No paragraphs. No bullet points. No long explanations.
         User message: {text_raw}
         """
 
@@ -198,16 +217,14 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
         text = resp.text.strip()
-
-        # Final hard enforcement
         lines = [l.strip() for l in text.split("\n") if l.strip()]
+
         if len(lines) > 2:
             lines = lines[:2]
 
-        text = "\n".join(lines)
-        await update.message.reply_text(text)
+        await update.message.reply_text("\n".join(lines))
 
-    except Exception as e:
+    except Exception:
         await update.message.reply_text("I couldn't answer right now.")
 
 
