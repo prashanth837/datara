@@ -95,12 +95,13 @@ async def ai_tone(text):
 
 
 CASUAL = {
-    "hi": "👋 Hey there!how can i help you?",
+    "hi": "👋 Hey there..! how can i help you?",
     "hlo" : "hello..!! how can i help you..?",
     "hello": "Hello! 😊",
     "hey": "Hey! 👋",
     "bye": "Goodbye! 👋",
     "thanks": "You're welcome 😊",
+    "thank you":"you're welcome"
 }
 
 
@@ -191,7 +192,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if matches:
         await update.message.reply_text(
-            "Did you mean:\n• " + "\n• ".join(matches)
+            "Did you mean(if yes rewite the name of required document):\n• " + "\n• ".join(matches)
         )
         return
 
@@ -200,8 +201,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # -----------------------------
     try:
         prompt = f"""
-        Reply in EXACTLY two lines.
-        - Line 1: Direct short answer.Very short summary in a formal lanuguage.
+        Reply in EXACTLY two lines.Direct short answer.Very short summary in a formal lanuguage.
         No paragraphs. No bullet points. No long explanations.
         User message: {text_raw}
         """
