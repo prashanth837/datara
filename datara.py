@@ -25,7 +25,7 @@ from telegram.ext import Application, CommandHandler, MessageHandler, ContextTyp
 # CONFIG (YOUR VALUES)
 # =============================
 BOT_TOKEN = os.getenv("BOT_TOKEN", "8441717075:AAGmsAqLYQSCT9EjiCxoJniHj4qxqD_lUYo")
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "AIzaSyC7zbNfvfvjtjpu8mJexyAY5JO7qO3I9jk")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "AIzaSyC2v4q1C2HVQ6JyDVnDR6eMLeIOGp66z9A")
 PDF_SHEET_ID = os.getenv("PDF_SHEET_ID", "1ME1I3OyFS9VYH2qeqHA5Elt9_f0XXNkkmDgyreVLylo")
 INFO_SHEET_ID = os.getenv("INFO_SHEET_ID", "1kUvOq9_HqBVk6dlfnDpMV7FJ9GbGSGXtrrC1zB6O5Oc")
 
@@ -116,55 +116,116 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text_raw = update.message.text or ""
     msg = clean_text(text_raw)
 
-    # -----------------------------------
+    # -----------------------------
     # CASUAL RESPONSES
-    # -----------------------------------
+    # -----------------------------
     if msg in CASUAL:
         await update.message.reply_text(CASUAL[msg])
         return
 
-    # -----------------------------------
-    # LOAD GOOGLE SHEET (INFO ONLY)
-    # -----------------------------------
+    # -----------------------------
+    # LOAD GOOGLE SHEETS
+    # -----------------------------
+    pdf_data = pdf_sheet.get_all_records()
     info_data = info_sheet.get_all_records()
 
-    # -----------------------------------
-    # SEARCH FOR KEYWORD MATCH
-    # -----------------------------------
+    found_info = []
+    found_pdf = []
+    all_keys = []   # will store BOTH info + pdf keywords
+
+    # -----------------------------
+    # INFO SHEET SEARCH
+    # -----------------------------
     for row in info_data:
         keys = [clean_text(k) for k in str(row.get("keywords", "")).split(",")]
+        all_keys.extend(keys)
+
         ans = row.get("answer") or row.get("info") or ""
 
         for kw in keys:
             if kw in msg or msg in kw:
-                refined = await ai_tone(ans)   # Make answer AI generated
-                await update.message.reply_text(refined)
-                return
+                found_info.append(ans)
+                break
 
-    # -----------------------------------
-    # GEMINI FALLBACK (IF NO KEYWORD MATCH)
-    # -----------------------------------
+    # If found, reply with info answer
+    if found_info:
+        answer = "\n\n".join(found_info)
+        answer = await ai_tone(answer)
+        await update.message.reply_text(answer)
+        return
+
+    # -----------------------------
+    # PDF SHEET SEARCH
+    # -----------------------------
+    for row in pdf_data:
+        keys = [clean_text(k) for k in str(row.get("keyword", "")).split(",")]
+        all_keys.extend(keys)
+
+        for kw in keys:
+            if kw in msg or msg in kw:
+                found_pdf.append(get_drive_download_link(row["file_url"]))
+                break
+
+    # If found PDF, send it
+    if found_pdf:
+        for url in found_pdf:
+            await update.message.reply_text("📎 Fetching PDF...")
+
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(url) as resp:
+                        file_bytes = BytesIO(await resp.read())
+                        await update.message.reply_document(
+                            document=file_bytes,
+                            filename=get_drive_file_name(url)
+                        )
+            except Exception as e:
+                await update.message.reply_text(f"⚠ Error: {e}")
+
+        return
+
+    # -----------------------------
+    # SUGGEST NEAR-MATCH KEYWORDS
+    # -----------------------------
+    from difflib import get_close_matches
+    matches = get_close_matches(msg, list(set(all_keys)), n=3, cutoff=0.55)
+
+    if matches:
+        await update.message.reply_text(
+            "Did you mean(if yes rewite the name of required document):\n• " + "\n• ".join(matches)
+        )
+        return
+
+    # -----------------------------
+    # GEMINI FALLBACK (ONLY IF SHEET FAILS)
+    # -----------------------------
     try:
         prompt = f"""
-        You are Datara Bot, AI assistant of the Data Science Department.
-        Reply in exactly 2 short lines.
-        Keep it formal, natural and helpful.
+        Reply in EXACTLY two lines.Direct short answer.Very short summary in a formal lanuguage.
+        No paragraphs. No bullet points. No long explanations.
         User message: {text_raw}
         """
 
         m = genai.GenerativeModel(MODEL_NAME)
-        resp = await asyncio.to_thread(m.generate_content, prompt)
+        resp = await asyncio.to_thread(
+            m.generate_content,
+            prompt,
+            generation_config={
+                "temperature": 0.2,
+                "max_output_tokens": 50
+            }
+        )
 
-        answer = resp.text.strip()
+        text = resp.text.strip()
+        lines = [l.strip() for l in text.split("\n") if l.strip()]
 
-        # Force exactly 1–2 lines
-        lines = [l.strip() for l in answer.split("\n") if l.strip()]
-        final_output = "\n".join(lines[:2])
+        if len(lines) > 2:
+            lines = lines[:2]
 
-        await update.message.reply_text(final_output)
+        await update.message.reply_text("\n".join(lines))
 
     except Exception:
-        await update.message.reply_text("⚠ I couldn't process that, please try again.")
+        await update.message.reply_text("I couldn't answer right now.")
 
 
 
