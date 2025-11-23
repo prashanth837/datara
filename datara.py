@@ -116,116 +116,55 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text_raw = update.message.text or ""
     msg = clean_text(text_raw)
 
-    # -----------------------------
+    # -----------------------------------
     # CASUAL RESPONSES
-    # -----------------------------
+    # -----------------------------------
     if msg in CASUAL:
         await update.message.reply_text(CASUAL[msg])
         return
 
-    # -----------------------------
-    # LOAD GOOGLE SHEETS
-    # -----------------------------
-    pdf_data = pdf_sheet.get_all_records()
+    # -----------------------------------
+    # LOAD GOOGLE SHEET (INFO ONLY)
+    # -----------------------------------
     info_data = info_sheet.get_all_records()
 
-    found_info = []
-    found_pdf = []
-    all_keys = []   # will store BOTH info + pdf keywords
-
-    # -----------------------------
-    # INFO SHEET SEARCH
-    # -----------------------------
+    # -----------------------------------
+    # SEARCH FOR KEYWORD MATCH
+    # -----------------------------------
     for row in info_data:
         keys = [clean_text(k) for k in str(row.get("keywords", "")).split(",")]
-        all_keys.extend(keys)
-
         ans = row.get("answer") or row.get("info") or ""
 
         for kw in keys:
             if kw in msg or msg in kw:
-                found_info.append(ans)
-                break
+                refined = await ai_tone(ans)   # Make answer AI generated
+                await update.message.reply_text(refined)
+                return
 
-    # If found, reply with info answer
-    if found_info:
-        answer = "\n\n".join(found_info)
-        answer = await ai_tone(answer)
-        await update.message.reply_text(answer)
-        return
-
-    # -----------------------------
-    # PDF SHEET SEARCH
-    # -----------------------------
-    for row in pdf_data:
-        keys = [clean_text(k) for k in str(row.get("keyword", "")).split(",")]
-        all_keys.extend(keys)
-
-        for kw in keys:
-            if kw in msg or msg in kw:
-                found_pdf.append(get_drive_download_link(row["file_url"]))
-                break
-
-    # If found PDF, send it
-    if found_pdf:
-        for url in found_pdf:
-            await update.message.reply_text("📎 Fetching PDF...")
-
-            try:
-                async with aiohttp.ClientSession() as session:
-                    async with session.get(url) as resp:
-                        file_bytes = BytesIO(await resp.read())
-                        await update.message.reply_document(
-                            document=file_bytes,
-                            filename=get_drive_file_name(url)
-                        )
-            except Exception as e:
-                await update.message.reply_text(f"⚠ Error: {e}")
-
-        return
-
-    # -----------------------------
-    # SUGGEST NEAR-MATCH KEYWORDS
-    # -----------------------------
-    from difflib import get_close_matches
-    matches = get_close_matches(msg, list(set(all_keys)), n=3, cutoff=0.55)
-
-    if matches:
-        await update.message.reply_text(
-            "Did you mean(if yes rewite the name of required document):\n• " + "\n• ".join(matches)
-        )
-        return
-
-    # -----------------------------
-    # GEMINI FALLBACK (ONLY IF SHEET FAILS)
-    # -----------------------------
+    # -----------------------------------
+    # GEMINI FALLBACK (IF NO KEYWORD MATCH)
+    # -----------------------------------
     try:
         prompt = f"""
-        Reply in EXACTLY two lines.Direct short answer.Very short summary in a formal lanuguage.
-        No paragraphs. No bullet points. No long explanations.
+        You are Datara Bot, AI assistant of the Data Science Department.
+        Reply in exactly 2 short lines.
+        Keep it formal, natural and helpful.
         User message: {text_raw}
         """
 
         m = genai.GenerativeModel(MODEL_NAME)
-        resp = await asyncio.to_thread(
-            m.generate_content,
-            prompt,
-            generation_config={
-                "temperature": 0.2,
-                "max_output_tokens": 50
-            }
-        )
+        resp = await asyncio.to_thread(m.generate_content, prompt)
 
-        text = resp.text.strip()
-        lines = [l.strip() for l in text.split("\n") if l.strip()]
+        answer = resp.text.strip()
 
-        if len(lines) > 2:
-            lines = lines[:2]
+        # Force exactly 1–2 lines
+        lines = [l.strip() for l in answer.split("\n") if l.strip()]
+        final_output = "\n".join(lines[:2])
 
-        await update.message.reply_text("\n".join(lines))
+        await update.message.reply_text(final_output)
 
     except Exception:
-        await update.message.reply_text("I couldn't answer right now.")
+        await update.message.reply_text("⚠ I couldn't process that, please try again.")
 
 
 
