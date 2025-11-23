@@ -25,7 +25,7 @@ from telegram.ext import Application, CommandHandler, MessageHandler, ContextTyp
 # CONFIG (YOUR VALUES)
 # =============================
 BOT_TOKEN = os.getenv("BOT_TOKEN", "8441717075:AAGmsAqLYQSCT9EjiCxoJniHj4qxqD_lUYo")
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "AIzaSyC2v4q1C2HVQ6JyDVnDR6eMLeIOGp66z9A")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "AIzaSyC7zbNfvfvjtjpu8mJexyAY5JO7qO3I9jk")
 PDF_SHEET_ID = os.getenv("PDF_SHEET_ID", "1ME1I3OyFS9VYH2qeqHA5Elt9_f0XXNkkmDgyreVLylo")
 INFO_SHEET_ID = os.getenv("INFO_SHEET_ID", "1kUvOq9_HqBVk6dlfnDpMV7FJ9GbGSGXtrrC1zB6O5Oc")
 
@@ -101,7 +101,8 @@ CASUAL = {
     "hey": "Hey! 👋",
     "bye": "Goodbye! 👋",
     "thanks": "You're welcome 😊",
-    "thank you":"you're welcome"
+    "thank you":"you're welcome",
+    "who are you" : "I am Datara Bot 🤖, an AI chatbot working under the 🧠 Department of Data Science.My role is to offer accurate  department information and provide 📄 PDF study materials for students.Please let me know how I may assist you."
 }
 
 
