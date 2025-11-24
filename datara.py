@@ -249,7 +249,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await update.message.reply_text("I couldn't answer right now.")
     except Exception:
-        await update.message.reply_text("I couldn't answer right now.")
+        await update.message.reply_text("I'm here to help with queries & notes related to the dept of Data Science.For general information outside this scope, please use external resources")
 
 
 # =============================
