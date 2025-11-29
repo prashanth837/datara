@@ -61,8 +61,8 @@ info_sheet = client.open_by_key(INFO_SHEET_ID).sheet1
 # =============================
 genai.configure(api_key=GEMINI_API_KEY)
 
-# IMPORTANT: use a valid model name
-MODEL_NAME = "gemini-2.5-flash"
+# IMPORTANT: use a valid mode name
+MODEL_NAME = "models/gemini-2.5-flash"
 
 
 # =============================
