@@ -131,30 +131,35 @@ def get_drive_download_link(url: str) -> str:
 
 async def ai_tone(text: str) -> str:
     """
-    Converts sheet-based answers into AI-style natural responses.
+    Rephrases content into AI-style responses
+    while strictly preserving names and factual entities.
     """
     try:
         prompt = f"""
-    You are an intelligent AI assistant responding to a student query.
-    Rewrite the following content as a natural, clear, and helpful AI response.
+        You are an AI assistant generating a natural response for a chatbot.
 
-    Rules:
-    - Sound like an AI explaining, not reading from a database
-    - Keep it concise and formal
-    - Do not repeat the same point
-    - Do not add new information
-    - No greetings, no closings, no emojis
+        MANDATORY RULES:
+        - Preserve all names, titles, and designations EXACTLY as given
+        - Do not shorten, rename, or correct any person names
+        - Do not remove surnames or initials
+        - Do not add or invent new information
 
-    Content:
-    {text}
-    """
+        STYLE GUIDELINES:
+        - Rewrite the content in a natural AI tone
+        - Improve sentence flow and clarity
+        - Keep it concise and professional
+        - No greetings, no emojis, no closing phrases
+
+        Content to rewrite:
+        {text}
+        """
 
         model = genai.GenerativeModel(MODEL_NAME)
         resp = await asyncio.to_thread(
             model.generate_content,
             prompt,
             generation_config={
-                "temperature": 0.4,
+                "temperature": 0.3,
                 "max_output_tokens": 120,
             }
         )
@@ -163,6 +168,7 @@ async def ai_tone(text: str) -> str:
 
     except Exception:
         return text.strip()
+
 
 
 
