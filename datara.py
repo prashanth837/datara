@@ -136,7 +136,7 @@ async def ai_tone(text: str) -> str:
     """
     try:
         prompt = f"""
-        You are an AI assistant generating a natural response for a chatbot.
+        You are an AI assistant generating a natural response for a chatbot.just give the text as ai generated without changing any details just change the way of conveying 
 
 
         Content to rewrite:
@@ -149,7 +149,7 @@ async def ai_tone(text: str) -> str:
             prompt,
             generation_config={
                 "temperature": 0.3,
-                "max_output_tokens": 120,
+                "max_output_tokens": 1200000,
             }
         )
 
