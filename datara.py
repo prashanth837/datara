@@ -138,17 +138,6 @@ async def ai_tone(text: str) -> str:
         prompt = f"""
         You are an AI assistant generating a natural response for a chatbot.
 
-        MANDATORY RULES:
-        - Preserve all names, titles, and designations EXACTLY as given
-        - Do not shorten, rename, or correct any person names
-        - Do not remove surnames or initials
-        - Do not add or invent new information
-
-        STYLE GUIDELINES:
-        - Rewrite the content in a natural AI tone
-        - Improve sentence flow and clarity
-        - Keep it concise and professional
-        - No greetings, no emojis, no closing phrases
 
         Content to rewrite:
         {text}
