@@ -232,12 +232,16 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if found_info:
         answer = "\n\n".join(found_info)
+
+        # use ai_tone here only
+        try:
+            answer = await ai_tone(answer)
+        except:
+            pass
+
         await update.message.reply_text(answer)
         save_memory(user_id,"bot",answer)
         return
-
-
-
     # pdf search
     for row in pdf_data:
         keys = [clean_text(k) for k in str(row.get("keyword", "")).split(",")]
