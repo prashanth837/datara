@@ -129,11 +129,43 @@ def get_drive_download_link(url: str) -> str:
     return url
 
 
+async def ai_tone(text: str) -> str:
+    """
+    Converts sheet-based answers into AI-style natural responses.
+    """
+    try:
+        prompt = f"""
+    You are an intelligent AI assistant responding to a student query.
+    Rewrite the following content as a natural, clear, and helpful AI response.
+
+    Rules:
+    - Sound like an AI explaining, not reading from a database
+    - Keep it concise and formal
+    - Do not repeat the same point
+    - Do not add new information
+    - No greetings, no closings, no emojis
+
+    Content:
+    {text}
+    """
+
+        model = genai.GenerativeModel(MODEL_NAME)
+        resp = await asyncio.to_thread(
+            model.generate_content,
+            prompt,
+            generation_config={
+                "temperature": 0.4,
+                "max_output_tokens": 120,
+            }
+        )
+
+        return (resp.text or text).strip()
+
+    except Exception:
+        return text.strip()
 
 
-# =============================
-# CASUAL
-# =============================
+
 CASUAL = {
     "hi": "👋 Hey there..! how can i help you?",
     "hlo": "hello..!! how can i help you..?",
