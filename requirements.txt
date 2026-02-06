@@ -4,5 +4,9 @@ aiohttp
 gspread
 google-auth
 google-auth-oauthlib
+google-auth-httplib2
 google-generativeai
 requests
+sentence-transformers
+faiss-cpu
+numpy
