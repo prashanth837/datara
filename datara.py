@@ -303,8 +303,10 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         await update.message.reply_text(answer)
 
-    except:
-        text="I'm here for data science content, please try again."
+    except Exception as e:
+        print("GEMINI ERROR:", e)
+
+        text = "⚠ AI service temporarily unavailable."
         await update.message.reply_text(text)
         save_memory(user_id,"bot",text)
 
