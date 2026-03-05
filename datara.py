@@ -97,7 +97,7 @@ info_sheet = client.open_by_key(INFO_SHEET_ID).sheet1
 # GEMINI INIT
 # =============================
 genai.configure(api_key=GEMINI_API_KEY)
-MODEL_NAME = "models/gemini-2.5-flash"
+MODEL_NAME = "gemini-1.5-flash"
 
 
 
@@ -149,7 +149,7 @@ async def ai_tone(text: str) -> str:
             prompt,
             generation_config={
                 "temperature": 0.3,
-                "max_output_tokens": 1200000,
+                "max_output_tokens": 1024,
             }
         )
 
