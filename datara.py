@@ -1,228 +1,372 @@
-import numpy as np
-import faiss
 import os
-import gspread
-from google.oauth2.service_account import Credentials
-from sentence_transformers import SentenceTransformer
-import google.generativeai as genai
-import aiohttp
+import re
+import json
+import threading
+import asyncio
 from io import BytesIO
-from dotenv import load_dotenv
+from urllib.parse import unquote
 
-from telegram import Update
-from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTypes
-load_dotenv()
+import aiohttp
+import requests
+from flask import Flask, request, jsonify
 
-# =============================
-# 🔐 CONFIG
-# =============================
-BOT_TOKEN = "8325420074:AAGpeRZYsKy1vhmDtnkh18KounPNj0wS-tQ"
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-if not GEMINI_API_KEY:
-    raise ValueError("Missing GEMINI_API_KEY")
+# GOOGLE
+from google.oauth2.service_account import Credentials
+import gspread
+
+# GEMINI
+import google.generativeai as genai
+
+# TELEGRAM (PTB 21.x)
+from telegram import Update, Bot
+from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters
 
 
-INFO_SHEET_ID = "1kUvOq9_HqBVk6dlfnDpMV7FJ9GbGSGXtrrC1zB6O5Oc"
-PDF_SHEET_ID = "1ME1I3OyFS9VYH2qeqHA5Elt9_f0XXNkkmDgyreVLylo"
 
-genai.configure(api_key=GEMINI_API_KEY)
-MODEL_NAME = "models/gemini-2.5-flash"
+# ======================================================
+# MEMORY + SUMMARY
+# ======================================================
+USER_MEMORY = {}        # {user_id:[{role,msg}]}
+USER_SUMMARY = {}       # {user_id:"summary text"}
+MAX_MESSAGES = 8        # compress every 8 msgs
 
-# =============================
-# 🧠 MEMORY
-# =============================
-USER_MEMORY = {}
 
-# =============================
-# 📊 GOOGLE SHEETS
-# =============================
-creds = Credentials.from_service_account_file(
-    "credentials.json",
-    scopes=[
-        "https://www.googleapis.com/auth/spreadsheets",
-        "https://www.googleapis.com/auth/drive.readonly"
-    ]
-)
 
-client = gspread.authorize(creds)
-
-info_sheet = client.open_by_key(INFO_SHEET_ID).sheet1
-pdf_sheet = client.open_by_key(PDF_SHEET_ID).sheet1
-
-# =============================
-# 🧠 LOAD DATA
-# =============================
-def load_data():
-    records = info_sheet.get_all_records()
-    texts, answers = [], []
-
-    for row in records:
-        keywords = str(row.get("keywords", ""))
-        info = str(row.get("answer", ""))
-
-        if not info.strip():
-            continue
-
-        texts.append(f"keywords: {keywords} | info: {info}")
-        answers.append(info)
-
-    return texts, answers
-
-texts, answers = load_data()
-
-# =============================
-# 🔍 EMBEDDINGS
-# =============================
-embed_model = SentenceTransformer('all-MiniLM-L6-v2')
-
-embeddings = embed_model.encode(texts)
-index = faiss.IndexFlatL2(embeddings.shape[1])
-index.add(np.array(embeddings))
-
-# =============================
-# 📄 PDF VECTOR DB
-# =============================
-pdf_texts, pdf_meta = [], []
-
-for row in pdf_sheet.get_all_records():
-    k = str(row.get("keyword", ""))
-    name = str(row.get("file_name", ""))
-    url = str(row.get("file_url", ""))
-
-    if k and url:
-        pdf_texts.append(k)
-        pdf_meta.append((name, url))
-
-pdf_embeddings = embed_model.encode(pdf_texts)
-pdf_index = faiss.IndexFlatL2(pdf_embeddings.shape[1])
-pdf_index.add(np.array(pdf_embeddings))
-
-# =============================
-# 🔎 SEARCH
-# =============================
-def search_pdf(query):
-    q = embed_model.encode([query])
-    D, I = pdf_index.search(np.array(q), 1)
-    if D[0][0] < 1.0:
-        return pdf_meta[I[0][0]]
-    return None, None
-
-def retrieve(query):
-    q = embed_model.encode([query])
-    D, I = index.search(np.array(q), 2)
-    return [(answers[i], score) for i, score in zip(I[0], D[0])]
-
-# =============================
-# 📄 SEND PDF
-# =============================
-async def send_pdf(update, name, url):
-    await update.message.reply_text("📄 Sending file...")
-
-    async with aiohttp.ClientSession() as session:
-        async with session.get(url) as resp:
-            file_bytes = BytesIO(await resp.read())
-
-            await update.message.reply_document(
-                document=file_bytes,
-                filename=name
-            )
-
-# =============================
-# 🤖 MAIN HANDLER
-# =============================
-async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.message.from_user.id
-    text = update.message.text
-
-    # memory init
+def save_memory(user_id, role, text):
     if user_id not in USER_MEMORY:
         USER_MEMORY[user_id] = []
+    USER_MEMORY[user_id].append({"role": role, "text": text})
 
-    USER_MEMORY[user_id].append(f"User: {text}")
 
-    # 1️⃣ PDF
-    name, url = search_pdf(text)
-    if url:
-        await send_pdf(update, name, url)
+async def auto_summarize(user_id, model):
+    if len(USER_MEMORY.get(user_id, [])) < MAX_MESSAGES:
         return
 
-    # 2️⃣ RAG
-    results = retrieve(text)
-    filtered = [t for t, s in results if s < 0.8]
+    history = ""
+    for m in USER_MEMORY[user_id]:
+        history += f"{m['role']}: {m['text']}\n"
 
-    if filtered:
-        context_text = "\n".join(filtered)
+    prompt = (
+        "Summarize the following chat history in 3 short lines. "
+        "Focus on main discussion only, remove greetings:\n\n" + history
+    )
 
-        try:
-            model = genai.GenerativeModel(MODEL_NAME)
+    resp = await asyncio.to_thread(model.generate_content, prompt)
+    summary = resp.text.strip()
 
-            prompt = f"""
-            Answer ONLY using this information with an ai polished tone not just an answer:
+    USER_SUMMARY[user_id] = summary
+    USER_MEMORY[user_id] = []   # keep next fresh messages
 
-            {context_text}
 
-            Question: {text}
-            """
-
-            res = model.generate_content(prompt)
-            answer = res.text.strip()
-
-        except:
-            answer = filtered[0]
-
-    else:
-        # 3️⃣ MEMORY + GEMINI
-        history = "\n".join(USER_MEMORY[user_id][-5:])
-
-        try:
-            model = genai.GenerativeModel(MODEL_NAME)
-
-            prompt = f"""
-            Continue conversation.
-
-            {history}
-
-            User: {text}
-            """
-
-            res = model.generate_content(prompt)
-            answer = res.text.strip()
-
-        except:
-            answer = "⚠ AI busy, try later."
-
-    USER_MEMORY[user_id].append(f"{answer}")
-
-    await update.message.reply_text(answer)
 
 # =============================
-# 🚀 START BOT
+# CONFIG
 # =============================
-app = ApplicationBuilder().token(BOT_TOKEN).build()
-app.add_handler(MessageHandler(filters.TEXT, handle))
+BOT_TOKEN = os.getenv("BOT_TOKEN", "8441717075:AAGmsAqLYQSCT9EjiCxoJniHj4qxqD_lUYo")
 
-print("🚀 Bot running...")
-from flask import Flask, request
-import asyncio
-from telegram import Bot, Update
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+if not GEMINI_API_KEY:
+    raise RuntimeError("❌ GEMINI_API_KEY missing!")
 
-app_flask = Flask(__name__)
-bot = Bot(BOT_TOKEN)
+PDF_SHEET_ID = os.getenv("PDF_SHEET_ID", "1ME1I3OyFS9VYH2qeqHA5Elt9_f0XXNkkmDgyreVLylo")
+INFO_SHEET_ID = os.getenv("INFO_SHEET_ID", "1kUvOq9_HqBVk6dlfnDpMV7FJ9GbGSGXtrrC1zB6O5Oc")
 
-loop = asyncio.new_event_loop()
-asyncio.set_event_loop(loop)
+GOOGLE_CREDENTIALS_JSON = os.getenv("GOOGLE_CREDENTIALS_JSON")
+if not GOOGLE_CREDENTIALS_JSON:
+    raise RuntimeError("❌ GOOGLE_CREDENTIALS_JSON missing!")
 
-@app_flask.route("/", methods=["POST"])
+
+
+# =============================
+# GOOGLE SHEETS INIT
+# =============================
+creds_info = json.loads(GOOGLE_CREDENTIALS_JSON)
+scopes = [
+    "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/drive.readonly"
+]
+creds = Credentials.from_service_account_info(creds_info, scopes=scopes)
+client = gspread.authorize(creds)
+
+pdf_sheet = client.open_by_key(PDF_SHEET_ID).sheet1
+info_sheet = client.open_by_key(INFO_SHEET_ID).sheet1
+
+
+
+# =============================
+# GEMINI INIT
+# =============================
+genai.configure(api_key=GEMINI_API_KEY)
+MODEL_NAME = "gemini-1.5-flash"
+
+
+
+# =============================
+# HELPERS
+# =============================
+def clean_text(t: str) -> str:
+    return re.sub(r"[^a-zA-Z0-9\s]", " ", (t or "")).lower().strip()
+
+
+def get_drive_file_name(url: str) -> str:
+    try:
+        r = requests.head(url, allow_redirects=True, timeout=10)
+        cd = r.headers.get("content-disposition", "")
+        if "filename=" in cd:
+            return unquote(cd.split("filename=")[1].strip('"'))
+    except:
+        pass
+    return "file.pdf"
+
+
+def get_drive_download_link(url: str) -> str:
+    if "drive.google.com/file/d/" in url:
+        fid = url.split("/d/")[1].split("/")[0]
+        return f"https://drive.google.com/uc?export=download&id={fid}"
+    if "drive.google.com/open?id=" in url:
+        fid = url.split("id=")[1].split("&")[0]
+        return f"https://drive.google.com/uc?export=download&id={fid}"
+    return url
+
+
+async def ai_tone(text: str) -> str:
+    """
+    Rephrases content into AI-style responses
+    while strictly preserving names and factual entities.
+    """
+    try:
+        prompt = f"""
+        You are an AI assistant generating a natural response for a chatbot.just give the text as ai generated without changing any details just change the way of conveying 
+
+
+        Content to rewrite:
+        {text}
+        """
+
+        model = genai.GenerativeModel(MODEL_NAME)
+        resp = await asyncio.to_thread(
+            model.generate_content,
+            prompt,
+            generation_config={
+                "temperature": 0.3,
+                "max_output_tokens": 1024,
+            }
+        )
+
+        return (resp.text or text).strip()
+
+    except Exception:
+        return text.strip()
+
+
+
+
+CASUAL = {
+    "hi": "👋 Hey there..! how can i help you?",
+    "hlo": "hello..!! how can i help you..?",
+    "hello": "Hello! 😊",
+    "hey": "Hey! 👋",
+    "bye": "Goodbye! 👋",
+    "thanks": "You're welcome 😊",
+    "thank you": "you're welcome",
+    "who are you": (
+        "I am Datara Bot 🤖, an AI chatbot working under the Department of Data Science. "
+        "Please let me know how I may assist you."
+    ),
+}
+
+
+
+# =============================
+# HANDLERS
+# =============================
+async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("👋 Datara Bot is ready (Webhook Mode).")
+
+
+
+async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    text_raw = update.message.text or ""
+    msg = clean_text(text_raw)
+
+    # memory store
+    user_id = update.message.from_user.id
+    save_memory(user_id, "user", text_raw)
+
+
+
+    # casual
+    if msg in CASUAL:
+        reply = CASUAL[msg]
+        await update.message.reply_text(reply)
+        save_memory(user_id,"bot",reply)
+        return
+
+
+
+    pdf_data = pdf_sheet.get_all_records()
+    info_data = info_sheet.get_all_records()
+
+    found_info = []
+    found_pdf = []
+    all_keys = []
+
+
+
+    # info search
+    for row in info_data:
+        keys = [clean_text(k) for k in str(row.get("keywords", "")).split(",")]
+        all_keys.extend(keys)
+        ans = row.get("answer") or row.get("info") or ""
+
+        for kw in keys:
+            if kw and (kw in msg or msg in kw):
+                found_info.append(ans)
+                break
+
+    if found_info:
+        answer = "\n\n".join(found_info)
+
+        # use ai_tone here only
+        try:
+            answer = await ai_tone(answer)
+        except:
+            pass
+
+        await update.message.reply_text(answer)
+        save_memory(user_id,"bot",answer)
+        return
+    # pdf search
+    for row in pdf_data:
+        keys = [clean_text(k) for k in str(row.get("keyword", "")).split(",")]
+        all_keys.extend(keys)
+        for kw in keys:
+            if kw and (kw in msg or msg in kw):
+                found_pdf.append(get_drive_download_link(row["file_url"]))
+                break
+
+    if found_pdf:
+        for url in found_pdf:
+            await update.message.reply_text("📎 Fetching PDF...")
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(url) as resp:
+                        file_bytes = BytesIO(await resp.read())
+                        await update.message.reply_document(
+                            document=file_bytes,
+                            filename=get_drive_file_name(url),
+                        )
+            except Exception as e:
+                await update.message.reply_text(f"⚠ Error: {e}")
+        return
+
+
+
+    # suggestions
+    from difflib import get_close_matches
+    matches = get_close_matches(msg, list(set(all_keys)), n=3, cutoff=0.55)
+    if matches:
+        text=f"Did you mean:\n• " + "\n• ".join(matches)
+        await update.message.reply_text(text)
+        save_memory(user_id,"bot",text)
+        return
+
+
+
+    # =======================================================
+    # GEMINI FALLBACK WITH CHAT MEMORY + AUTO-SUMMARY
+    # =======================================================
+    try:
+        model = genai.GenerativeModel(MODEL_NAME)
+
+        # build context
+        context = ""
+        if user_id in USER_SUMMARY:
+            context += "Summary:\n" + USER_SUMMARY[user_id] + "\n\n"
+
+        for x in USER_MEMORY.get(user_id, []):
+            context += f"{x['role']}: {x['text']}\n"
+
+        prompt = (
+            "Continue conversation based on context. Short and formal.\n\n"
+            + context + f"\nUser: {text_raw}"
+        )
+
+        resp = await asyncio.to_thread(model.generate_content, prompt)
+        answer = resp.text.strip()
+
+        save_memory(user_id,"bot",answer)
+
+        # compress
+        await auto_summarize(user_id, model)
+
+        await update.message.reply_text(answer)
+
+    except Exception as e:
+        print("GEMINI ERROR:", e)
+
+        text = "⚠ AI service temporarily unavailable."
+        await update.message.reply_text(text)
+        save_memory(user_id,"bot",text)
+
+
+
+# =============================
+# PTB
+# =============================
+application = Application.builder().token(BOT_TOKEN).build()
+application.add_handler(CommandHandler("start", start_handler))
+application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, message_handler))
+
+
+
+app_loop = None
+
+
+
+def start_ptb_thread():
+    def runner():
+        global app_loop
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        app_loop = loop
+        loop.run_until_complete(application.initialize())
+        loop.run_until_complete(application.start())
+        print("PTB bot started")
+        loop.run_forever()
+
+    threading.Thread(target=runner, daemon=True).start()
+
+
+
+# =============================
+# FLASK
+# =============================
+app = Flask(__name__)
+
+
+
+@app.post("/")
 def webhook():
-    data = request.get_json()
-    update = Update.de_json(data, bot)
+    if app_loop is None:
+        return "PTB not ready", 503
 
-    loop.run_until_complete(handle(update, None))
-    return "ok"
+    data = request.get_json(force=True)
+    update = Update.de_json(data, Bot(BOT_TOKEN))
+    asyncio.run_coroutine_threadsafe(application.update_queue.put(update), app_loop)
 
-@app_flask.route("/", methods=["GET"])
+    return "OK", 200
+
+
+
+@app.get("/")
 def home():
-    return "Bot is running"
+    return "Datara Bot Webhook Active", 200
+
+
 
 if __name__ == "__main__":
-    app_flask.run(host="0.0.0.0", port=10000)
+    start_ptb_thread()
+    port = int(os.getenv("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
