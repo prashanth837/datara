@@ -347,7 +347,7 @@ app = Flask(__name__)
 
 
 
-@app.post("/")
+@app.post("/webhook")
 def webhook():
     if app_loop is None:
         return "PTB not ready", 503
