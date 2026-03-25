@@ -62,7 +62,7 @@ async def auto_summarize(user_id, model):
 # =============================
 # CONFIG
 # =============================
-BOT_TOKEN = os.getenv("BOT_TOKEN", "8441717075:AAGmsAqLYQSCT9EjiCxoJniHj4qxqD_lUYo")
+BOT_TOKEN = os.getenv("BOT_TOKEN", "8441717075:AAEtpWNNtaAATCFPTxF2qO_2ikRZXaBa2xs")
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 if not GEMINI_API_KEY:
