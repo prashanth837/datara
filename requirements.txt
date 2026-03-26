@@ -8,6 +8,6 @@ google-auth-httplib2
 google-generativeai
 requests
 sentence-transformers
-faiss-cpu==1.7.4
+faiss-cpu
 numpy
 scikit-learn
